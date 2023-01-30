@@ -8,28 +8,26 @@ use bevy_ecs::{
     reflect::ReflectComponent,
     system::{Commands, Local, Query, Res, ResMut},
 };
-use bevy_math::{Vec2, Vec3};
+use bevy_math::Vec2;
 use bevy_reflect::Reflect;
 use bevy_render::{
-    prelude::Color,
     texture::Image,
     view::{ComputedVisibility, Visibility},
-    Extract,
 };
-use bevy_sprite::{Anchor, ExtractedSprite, ExtractedSprites, TextureAtlas};
+use bevy_sprite::TextureAtlas;
 use bevy_transform::prelude::{GlobalTransform, Transform};
 use bevy_utils::HashSet;
 use bevy_window::{WindowId, WindowScaleFactorChanged, Windows};
 
 use crate::{
-    scale_value, Font, FontAtlasSet, FontAtlasWarning, HorizontalAlign, Text, TextError,
-    TextLayoutInfo, TextPipeline, TextSettings, VerticalAlign, YAxisOrientation,
+    scale_value, Font, FontAtlasSet, FontAtlasWarning, Text, TextError, TextLayoutInfo,
+    TextPipeline, TextSettings, YAxisOrientation,
 };
 
-/// The calculated size of text drawn in 2D scene.
+/// The calculated size of text drawn in 3D scene.
 #[derive(Component, Default, Copy, Clone, Debug, Reflect)]
 #[reflect(Component)]
-pub struct Text2dSize {
+pub struct Text3dSize {
     pub size: Vec2,
 }
 
@@ -42,11 +40,11 @@ pub struct Text2dSize {
 /// component is mainly useful for text wrapping only.
 #[derive(Component, Copy, Clone, Debug, Reflect)]
 #[reflect(Component)]
-pub struct Text2dBounds {
+pub struct Text3dBounds {
     pub size: Vec2,
 }
 
-impl Default for Text2dBounds {
+impl Default for Text3dBounds {
     fn default() -> Self {
         Self {
             size: Vec2::new(f32::MAX, f32::MAX),
@@ -54,93 +52,16 @@ impl Default for Text2dBounds {
     }
 }
 
-/// The bundle of components needed to draw text in a 2D scene via a 2D `Camera2dBundle`.
-/// [Example usage.](https://github.com/bevyengine/bevy/blob/latest/examples/2d/text2d.rs)
+/// The bundle of components needed to draw text in a 3D scene via a 3D `Camera3dBundle`.
 #[derive(Bundle, Clone, Debug, Default)]
-pub struct Text2dBundle {
+pub struct Text3dBundle {
     pub text: Text,
     pub transform: Transform,
     pub global_transform: GlobalTransform,
-    pub text_2d_size: Text2dSize,
-    pub text_2d_bounds: Text2dBounds,
+    pub text_3d_size: Text3dSize,
+    pub text_3d_bounds: Text3dBounds,
     pub visibility: Visibility,
     pub computed_visibility: ComputedVisibility,
-}
-
-pub fn extract_text2d_sprite(
-    mut extracted_sprites: ResMut<ExtractedSprites>,
-    texture_atlases: Extract<Res<Assets<TextureAtlas>>>,
-    windows: Extract<Res<Windows>>,
-    text2d_query: Extract<
-        Query<(
-            Entity,
-            &ComputedVisibility,
-            &Text,
-            &TextLayoutInfo,
-            &GlobalTransform,
-            &Text2dSize,
-        )>,
-    >,
-) {
-    let scale_factor = windows.scale_factor(WindowId::primary()) as f32;
-
-    for (entity, computed_visibility, text, text_layout_info, text_transform, calculated_size) in
-        text2d_query.iter()
-    {
-        if !computed_visibility.is_visible() {
-            continue;
-        }
-        let (width, height) = (calculated_size.size.x, calculated_size.size.y);
-
-        let text_glyphs = &text_layout_info.glyphs;
-        let alignment_offset = match text.alignment.vertical {
-            VerticalAlign::Top => Vec3::new(0.0, -height, 0.0),
-            VerticalAlign::Center => Vec3::new(0.0, -height * 0.5, 0.0),
-            VerticalAlign::Bottom => Vec3::ZERO,
-        } + match text.alignment.horizontal {
-            HorizontalAlign::Left => Vec3::ZERO,
-            HorizontalAlign::Center => Vec3::new(-width * 0.5, 0.0, 0.0),
-            HorizontalAlign::Right => Vec3::new(-width, 0.0, 0.0),
-        };
-
-        let mut color = Color::WHITE;
-        let mut current_section = usize::MAX;
-        for text_glyph in text_glyphs {
-            if text_glyph.section_index != current_section {
-                color = text.sections[text_glyph.section_index]
-                    .style
-                    .color
-                    .as_rgba_linear();
-                current_section = text_glyph.section_index;
-            }
-            let atlas = texture_atlases
-                .get(&text_glyph.atlas_info.texture_atlas)
-                .unwrap();
-            let handle = atlas.texture.clone_weak();
-            let index = text_glyph.atlas_info.glyph_index;
-            let rect = Some(atlas.textures[index]);
-
-            let glyph_transform = Transform::from_translation(
-                alignment_offset * scale_factor + text_glyph.position.extend(0.),
-            );
-            // NOTE: Should match `bevy_ui::render::extract_text_uinodes`
-            let transform = *text_transform
-                * GlobalTransform::from_scale(Vec3::splat(scale_factor.recip()))
-                * glyph_transform;
-
-            extracted_sprites.sprites.push(ExtractedSprite {
-                entity,
-                transform,
-                color,
-                rect,
-                custom_size: None,
-                image_handle_id: handle.id(),
-                flip_x: false,
-                flip_y: false,
-                anchor: Anchor::Center.as_vec(),
-            });
-        }
-    }
 }
 
 /// Updates the layout and size information whenever the text or style is changed.
@@ -151,7 +72,7 @@ pub fn extract_text2d_sprite(
 /// [`ResMut<Assets<Image>>`](Assets<Image>) -- This system only adds new [`Image`] assets.
 /// It does not modify or observe existing ones.
 #[allow(clippy::too_many_arguments)]
-pub fn update_text2d_layout(
+pub fn update_text3d_layout(
     mut commands: Commands,
     // Text items which should be reprocessed again, generally when the font hasn't loaded yet.
     mut queue: Local<HashSet<Entity>>,
@@ -168,8 +89,8 @@ pub fn update_text2d_layout(
         Entity,
         Changed<Text>,
         &Text,
-        Option<&Text2dBounds>,
-        &mut Text2dSize,
+        Option<&Text3dBounds>,
+        &mut Text3dSize,
         Option<&mut TextLayoutInfo>,
     )>,
 ) {
